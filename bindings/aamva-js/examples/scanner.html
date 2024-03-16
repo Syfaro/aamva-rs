@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+
+    <title>Rust AAMVA Barcode Decoder</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+
+<body>
+    <section class="hero">
+        <div class="hero-body">
+            <div class="container">
+                <h1 class="title is-1">Rust AAMVA Barcode Decoder Examples</h1>
+
+                <p class="subtitle">Local-only decoding of AAMVA barcodes.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <div class="columns">
+                <div class="column">
+                    <div class="field">
+                        <label class="label" for="manual-entry">Manual Entry</label>
+                        <div class="control">
+                            <textarea id="manual-entry" class="textarea" placeholder="@&#10;&#10;ANSI 636&hellip;"
+                                rows="5"></textarea>
+                        </div>
+                    </div>
+
+                    <button type="button" class="button is-primary" id="decode-button">Decode</button>
+                </div>
+
+                <div class="column">
+                    <div class="notification is-danger is-hidden" id="shape-detection-warning">
+                        Your browser does not support the Shape Detection API.
+                        Image processing features will not work.
+                    </div>
+
+                    <div class="field">
+                        <label class="label" for="photo-upload">Photo</label>
+                        <div class="control">
+                            <input type="file" name="photo-upload" accept="image/*" id="photo-upload">
+                        </div>
+                    </div>
+
+                    <hr class="hr">
+
+                    <div class="block">
+                        <button type="button" class="button is-info" id="start-webcam">Use Webcam</button>
+                        <video class="is-hidden" id="webcam-preview" style="width: 100%;" playsinline muted></video>
+                    </div>
+                </div>
+            </div>
+
+            <div class="columns is-centered is-hidden" id="decoded-data-container">
+                <div class="column is-half">
+                    <nav class="level is-mobile">
+                        <div class="level-item has-text-centered">
+                            <div>
+                                <p class="heading">Barcode Detection</p>
+                                <p class="title" id="barcode-detection-time"></p>
+                            </div>
+                        </div>
+
+                        <div class="level-item has-text-centered">
+                            <div>
+                                <p class="heading">Data Decoding</p>
+                                <p class="title" id="data-decoding-time"></p>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <div class="field">
+                        <div class="control">
+                            <textarea id="decoded-data" class="textarea"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script type="module">
+        import init, { parse_barcode } from "../pkg/aamva_js.js";
+
+        const manualEntry = document.getElementById("manual-entry");
+        const decodedDataContainer = document.getElementById("decoded-data-container");
+        const decodedDataResult = document.getElementById("decoded-data");
+
+        const barcodeDetectionTime = document.getElementById("barcode-detection-time");
+        const dataDecodingTime = document.getElementById("data-decoding-time");
+
+        const startWebcam = document.getElementById("start-webcam");
+        const webcamPreview = document.getElementById("webcam-preview");
+
+        const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
+
+        init().then(() => {
+            function decodeData(data) {
+                let barcodeData;
+
+                try {
+                    const decodeStart = performance.now();
+                    barcodeData = parse_barcode(data);
+                    const decodeDuration = performance.now() - decodeStart;
+                    dataDecodingTime.textContent = `${numberFormatter.format(decodeDuration)} ms`;
+                } catch (err) {
+                    alert(`Could not decode barcode: ${err}`);
+                    console.error(err);
+                    return;
+                }
+
+                decodedDataContainer.classList.remove("is-hidden");
+
+                decodedDataResult.value = JSON.stringify(barcodeData, (_, value) =>
+                    value instanceof Map || value instanceof Set ? Array.from(value).reduce((obj, [key, value]) => {
+                        obj[key] = value;
+                        return obj;
+                    }, {}) : value, 2);
+                decodedDataResult.style.height = `${decodedDataResult.scrollHeight}px`;
+            }
+
+            document.getElementById("decode-button").addEventListener("click", (ev) => {
+                barcodeDetectionTime.textContent = 'N/A';
+                const data = manualEntry.value;
+                decodeData(data);
+            });
+
+            if (!("BarcodeDetector" in globalThis)) {
+                document.getElementById("shape-detection-warning").classList.remove("is-hidden");
+            } else {
+                const barcodeDetector = new BarcodeDetector({
+                    formats: ["pdf417"],
+                });
+
+                document.getElementById("photo-upload").addEventListener("change", (ev) => {
+                    const files = ev.target.files;
+
+                    if (!files || files.length > 1) {
+                        alert("Please select exactly one file.");
+                        return;
+                    }
+
+                    const file = files[0];
+
+                    const barcodeStart = performance.now();
+                    barcodeDetector.detect(file).then((barcodes) => {
+                        const barcodeDuration = performance.now() - barcodeStart;
+                        barcodeDetectionTime.textContent = `${numberFormatter.format(barcodeDuration)} ms`;
+
+                        if (barcodes.length === 0 || barcodes.length > 1) {
+                            alert("Ensure image contains exactly one barcode.");
+                            return;
+                        }
+
+                        const data = barcodes[0].rawValue;
+                        manualEntry.value = data;
+
+                        decodeData(data);
+                    });
+                });
+
+                startWebcam.addEventListener("click", (ev) => {
+                    navigator.mediaDevices
+                        .getUserMedia({ video: { facingMode: "environment" }, audio: false })
+                        .then((stream) => {
+                            let timeout;
+
+                            webcamPreview.classList.remove("is-hidden");
+                            startWebcam.classList.add("is-hidden");
+
+                            webcamPreview.srcObject = stream;
+                            webcamPreview.play();
+
+                            function searchBarcodes() {
+                                const barcodeStart = performance.now();
+
+                                barcodeDetector.detect(webcamPreview).then((barcodes) => {
+                                    if (barcodes.length > 0) {
+                                        const barcodeDuration = performance.now() - barcodeStart;
+                                        barcodeDetectionTime.textContent = `${numberFormatter.format(barcodeDuration)} ms`;
+
+                                        clearTimeout(timeout);
+
+                                        webcamPreview.srcObject = null;
+
+                                        webcamPreview.classList.add("is-hidden");
+                                        startWebcam.classList.remove("is-hidden");
+
+                                        stream.getTracks().forEach(function (track) {
+                                            track.stop();
+                                        });
+
+                                        const data = barcodes[0].rawValue;
+                                        manualEntry.value = data;
+
+                                        decodeData(data);
+                                    }
+
+                                    timeout = setTimeout(searchBarcodes, 100);
+                                });
+                            }
+
+                            timeout = setTimeout(searchBarcodes, 100);
+                        });
+                });
+            }
+        });
+    </script>
+</body>
+
+</html>
