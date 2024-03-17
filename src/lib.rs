@@ -14,7 +14,7 @@ use tap::TapFallible;
 
 use data::IssuerIdentification;
 
-mod data;
+pub mod data;
 
 #[derive(Debug, Serialize)]
 pub struct Data<'a> {
@@ -257,7 +257,10 @@ fn parse_data_elements<'a>(
     Ok((input, elements))
 }
 
-fn parse_data_element(input: &str, subfile_type: SubfileType) -> IResult<&str, DataElement> {
+fn parse_data_element<'a>(
+    input: &'a str,
+    subfile_type: SubfileType,
+) -> IResult<&'a str, DataElement<'a>> {
     let prefix = match subfile_type {
         SubfileType::DL | SubfileType::EN | SubfileType::ID => "D".to_string(),
         SubfileType::JurisdictionSpecific(c) => format!("Z{c}"),
@@ -282,7 +285,7 @@ fn parse_data_element(input: &str, subfile_type: SubfileType) -> IResult<&str, D
     Ok((input, DataElement { id, value }))
 }
 
-pub fn parse_barcode<'a>(input: &'a str) -> Result<Data<'a>, nom::Err<nom::error::Error<&str>>> {
+pub fn parse_barcode<'a>(input: &'a str) -> Result<Data<'a>, nom::Err<nom::error::Error<&'a str>>> {
     let (_trailing, (start, header)) = parse_header(input)?;
 
     let subfiles = header
@@ -315,7 +318,6 @@ fn digit_4char(input: &str) -> IResult<&str, u32> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Write;
     use std::io::Read;
     use std::path::PathBuf;
     use std::sync::Once;

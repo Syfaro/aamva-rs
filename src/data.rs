@@ -194,9 +194,9 @@ impl<'a> Data<'a> {
 
         let input = &input[..8];
 
-        static MDY: &[time::format_description::FormatItem] =
+        static MDY: &[time::format_description::FormatItem<'_>] =
             format_description!("[month][day][year]");
-        static YMD: &[time::format_description::FormatItem] =
+        static YMD: &[time::format_description::FormatItem<'_>] =
             format_description!("[year][month][day]");
 
         if country == IssuerCountry::UnitedStates && self.header.version_number != 1 {
