@@ -8,8 +8,8 @@ use time::{format_description::FormatItem, macros::format_description, Date};
 
 use crate::{Data, SubfileType};
 
-const DATE_FORMAT: &[FormatItem] = format_description!("[year]-[month]-[day]");
-time::serde::format_description!(ymd_format, Date, DATE_FORMAT);
+const YMD_FORMAT: &[FormatItem] = format_description!("[year]-[month]-[day]");
+time::serde::format_description!(ymd_format, Date, YMD_FORMAT);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum IssuerCountry {
@@ -111,28 +111,6 @@ impl IssuerIdentification {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EyeColor {
-    Black,
-    Blue,
-    Brown,
-    Dichromatic,
-    Gray,
-    Green,
-    Hazel,
-    Maroon,
-    Pink,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Height {
-    Inches(u16),
-    Centimeters(u16),
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecodedData {
     pub issuer_id: u32,
@@ -156,6 +134,11 @@ pub struct DecodedData {
     pub place_of_birth: Option<String>,
     pub audit_information: Option<String>,
     pub inventory_control_information: Option<String>,
+    pub weight: Option<Weight>,
+    pub race: Option<Race>,
+    #[serde(with = "ymd_format::option")]
+    pub card_revision_date: Option<Date>,
+    pub under_age_until: UnderAgeUntil,
 }
 
 impl From<Data<'_>> for DecodedData {
@@ -179,22 +162,30 @@ impl From<Data<'_>> for DecodedData {
             place_of_birth: value.place_of_birth(),
             audit_information: value.audit_information(),
             inventory_control_information: value.inventory_control_information(),
+            weight: value.weight(),
+            race: value.race(),
+            card_revision_date: value.card_revision_date(),
+            under_age_until: value.under_age_until(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Name {
-    pub family_name: String,
-    pub first_name: String,
-    pub middle_name: Option<String>,
+    pub family: String,
+    pub first: String,
+    pub middle: Option<String>,
 
     pub prefix: Option<String>,
     pub suffix: Option<String>,
 
-    pub family_name_truncation: Option<Truncation>,
-    pub first_name_truncation: Option<Truncation>,
-    pub middle_name_truncation: Option<Truncation>,
+    pub alias_family: Option<String>,
+    pub alias_given: Option<String>,
+    pub alias_suffix: Option<String>,
+
+    pub family_truncation: Option<Truncation>,
+    pub first_truncation: Option<Truncation>,
+    pub middle_truncation: Option<Truncation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,6 +213,21 @@ pub struct Address {
     pub postal_code: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EyeColor {
+    Black,
+    Blue,
+    Brown,
+    Dichromatic,
+    Gray,
+    Green,
+    Hazel,
+    Maroon,
+    Pink,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HairColor {
@@ -236,96 +242,144 @@ pub enum HairColor {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Height {
+    Inches(u16),
+    Centimeters(u16),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Weight {
+    Pounds(u16),
+    Kilograms(u16),
+    KilogramRange { from: u8, to: u8 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Race {
+    AlaskanAmericanIndian,
+    AsianPacificIslander,
+    Black,
+    HispanicOrigin,
+    NonHispanic,
+    Unknown,
+    White,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnderAgeUntil {
+    #[serde(with = "ymd_format::option")]
+    pub under_18_until: Option<Date>,
+    #[serde(with = "ymd_format::option")]
+    pub under_19_until: Option<Date>,
+    #[serde(with = "ymd_format::option")]
+    pub under_21_until: Option<Date>,
+}
+
 fn filter_empty_str<S>(input: S) -> Option<S>
 where
     S: AsRef<str>,
 {
-    input.as_ref().is_empty().not().then(|| input)
+    input.as_ref().is_empty().not().then_some(input)
 }
 
 impl<'a> Data<'a> {
     pub fn name(&self) -> Option<Name> {
         match self.header.version_number {
             ..=1 => {
-                if let Some(family_name) = self.get_field_owned("DAB") {
-                    let first_name = self.get_field_owned("DAC")?;
-                    let middle_name = self.get_field_owned("DAD");
+                if let Some(family) = self.get_field_owned("DAB") {
+                    let first = self.get_field_owned("DAC")?;
+                    let middle = self.get_field_owned("DAD");
                     let suffix = self.get_field_owned("DAE");
                     let prefix = self.get_field_owned("DAF");
 
                     Some(Name {
-                        family_name,
-                        first_name,
-                        middle_name,
+                        family,
+                        first,
+                        middle,
                         suffix,
                         prefix,
-                        family_name_truncation: None,
-                        first_name_truncation: None,
-                        middle_name_truncation: None,
+                        alias_family: None,
+                        alias_given: None,
+                        alias_suffix: None,
+                        family_truncation: None,
+                        first_truncation: None,
+                        middle_truncation: None,
                     })
                 } else {
-                    let mut name = self.get_field("DAA")?.split(",");
-                    let family_name = name.next()?.to_string();
-                    let first_name = name.next()?.to_string();
-                    let middle_name = name.next().map(str::to_string);
+                    let field = self.get_field("DAA")?;
+                    let split = if field.contains(',') { ',' } else { ' ' };
+                    let mut parts = field.split(split);
+                    let family = parts.next()?.to_string();
+                    let first = parts.next()?.to_string();
+                    let middle = filter_empty_str(parts.join(" "));
 
                     Some(Name {
-                        family_name: family_name.to_string(),
-                        first_name,
-                        middle_name,
+                        family,
+                        first,
+                        middle,
                         suffix: None,
                         prefix: None,
-                        family_name_truncation: None,
-                        first_name_truncation: None,
-                        middle_name_truncation: None,
+                        alias_family: None,
+                        alias_given: None,
+                        alias_suffix: None,
+                        family_truncation: None,
+                        first_truncation: None,
+                        middle_truncation: None,
                     })
                 }
             }
             2..=3 => {
                 let names = self.get_field("DCT")?;
 
-                let mut parts = if names.contains(',') {
-                    names.split(',')
-                } else {
-                    names.split(' ')
-                };
+                let split = if names.contains(',') { ',' } else { ' ' };
+                let mut parts = names.split(split);
 
-                let first_name = parts.next()?.to_string();
-                let middle_name = filter_empty_str(parts.join(" "));
+                let first = parts.next()?.to_string();
+                let middle = filter_empty_str(parts.join(" "));
 
                 Some(Name {
-                    family_name: self.get_field_owned("DCS")?,
-                    first_name,
-                    middle_name,
+                    family: self.get_field_owned("DCS")?,
+                    first,
+                    middle,
                     suffix: None,
                     prefix: None,
-                    family_name_truncation: None,
-                    first_name_truncation: None,
-                    middle_name_truncation: None,
+                    alias_family: None,
+                    alias_given: None,
+                    alias_suffix: None,
+                    family_truncation: None,
+                    first_truncation: None,
+                    middle_truncation: None,
                 })
             }
             4.. => Some(Name {
-                family_name: self.get_field_owned("DCS")?,
-                first_name: self.get_field_owned("DAC")?,
-                middle_name: self.get_field_owned("DAD"),
+                family: self.get_field_owned("DCS")?,
+                first: self.get_field_owned("DAC")?,
+                middle: self.get_field_owned("DAD"),
                 suffix: self.get_field_owned("DCU"),
                 prefix: None,
-                family_name_truncation: self.get_field("DDE").and_then(Self::parse_truncation),
-                first_name_truncation: self.get_field("DDF").and_then(Self::parse_truncation),
-                middle_name_truncation: self.get_field("DDG").and_then(Self::parse_truncation),
+                alias_family: self.get_field_owned("DBN"),
+                alias_given: self.get_field_owned("DBG"),
+                alias_suffix: self.get_field_owned("DBS"),
+                family_truncation: self.get_field("DDE").and_then(Self::parse_truncation),
+                first_truncation: self.get_field("DDF").and_then(Self::parse_truncation),
+                middle_truncation: self.get_field("DDG").and_then(Self::parse_truncation),
             }),
         }
     }
 
-    pub fn document_expiration_date(&self) -> Option<time::Date> {
+    pub fn document_expiration_date(&self) -> Option<Date> {
         self.date_field("DBA")
     }
 
-    pub fn date_of_birth(&self) -> Option<time::Date> {
+    pub fn date_of_birth(&self) -> Option<Date> {
         self.date_field("DBB")
     }
 
-    pub fn document_issue_date(&self) -> Option<time::Date> {
+    pub fn document_issue_date(&self) -> Option<Date> {
         self.date_field("DBD")
     }
 
@@ -469,17 +523,76 @@ impl<'a> Data<'a> {
         self.get_field_owned("DCK")
     }
 
-    fn date_field(&self, name: &str) -> Option<time::Date> {
+    pub fn weight(&self) -> Option<Weight> {
+        use Weight::KilogramRange;
+
+        if let Some(pounds) = self.get_field("DAW") {
+            pounds.parse().ok().map(Weight::Pounds)
+        } else if let Some(kilograms) = self.get_field("DAX") {
+            kilograms.parse().ok().map(Weight::Kilograms)
+        } else if let Some(range) = self.get_field("DCE") {
+            Some(match range {
+                "0" => KilogramRange { from: 0, to: 31 },
+                "1" => KilogramRange { from: 32, to: 45 },
+                "2" => KilogramRange { from: 46, to: 59 },
+                "3" => KilogramRange { from: 60, to: 70 },
+                "4" => KilogramRange { from: 71, to: 86 },
+                "5" => KilogramRange { from: 87, to: 100 },
+                "6" => KilogramRange { from: 101, to: 113 },
+                "7" => KilogramRange { from: 114, to: 127 },
+                "8" => KilogramRange { from: 128, to: 145 },
+                "9" => KilogramRange {
+                    from: 146,
+                    to: u8::MAX,
+                },
+                _ => return None,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn race(&self) -> Option<Race> {
+        use Race::*;
+
+        let race = match self.get_field("DCL")?.to_ascii_uppercase().as_str() {
+            "AI" => AlaskanAmericanIndian,
+            "AP" => AsianPacificIslander,
+            "BK" => Black,
+            "H" => HispanicOrigin,
+            "O" => NonHispanic,
+            "U" => Unknown,
+            "W" => White,
+            _ => return None,
+        };
+
+        Some(race)
+    }
+
+    pub fn card_revision_date(&self) -> Option<Date> {
+        self.date_field("DDB")
+    }
+
+    pub fn under_age_until(&self) -> UnderAgeUntil {
+        UnderAgeUntil {
+            under_18_until: self.under_n_until("DDH", 18),
+            under_19_until: self.under_n_until("DDH", 19),
+            under_21_until: self.under_n_until("DDH", 21),
+        }
+    }
+
+    fn date_field(&self, name: &str) -> Option<Date> {
         let country = IssuerIdentification::try_from(self.header.issuer_id)
             .map(|issuer| issuer.country())
             .unwrap_or_default();
 
-        let date_of_birth = self.get_field(name)?;
+        let field = self.get_field(name)?;
 
-        self.parse_date(date_of_birth, country)
+        self.parse_date(field, country)
     }
 
-    fn parse_date(&self, input: &str, country: IssuerCountry) -> Option<time::Date> {
+    #[tracing::instrument(skip(self))]
+    fn parse_date(&self, input: &str, country: IssuerCountry) -> Option<Date> {
         if input.len() != 8 {
             tracing::warn!("date was incorrect length: {input}");
             return None;
@@ -487,30 +600,50 @@ impl<'a> Data<'a> {
 
         let input = &input[..8];
 
-        static MDY: &[time::format_description::FormatItem<'_>] =
-            format_description!("[month][day][year]");
-        static YMD: &[time::format_description::FormatItem<'_>] =
-            format_description!("[year][month][day]");
+        const MDY: &[FormatItem<'_>] = format_description!("[month][day][year]");
+        const YMD: &[FormatItem<'_>] = format_description!("[year][month][day]");
 
         if country == IssuerCountry::UnitedStates && self.header.version_number != 1 {
-            match time::Date::parse(input, &MDY) {
-                Err(_err) => time::Date::parse(input, &YMD),
+            match Date::parse(input, &MDY) {
+                Err(_err) => Date::parse(input, &YMD),
                 date => date,
             }
         } else {
-            time::Date::parse(input, &YMD)
+            Date::parse(input, &YMD)
         }
         .tap_err(|err| tracing::warn!("could not parse date {input} ({country:?}): {err}"))
         .ok()
     }
 
     fn parse_truncation(input: &str) -> Option<Truncation> {
-        match input {
+        match input.to_ascii_uppercase().as_str() {
             "T" => Some(Truncation::Truncated),
             "N" => Some(Truncation::NotTruncated),
             "U" => Some(Truncation::Unknown),
             _ => None,
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    fn under_n_until(&self, name: &str, age: i32) -> Option<Date> {
+        if let Some(date) = self.date_field(name) {
+            return Some(date);
+        }
+
+        let (year, day_of_year) = self.date_of_birth()?.to_ordinal_date();
+
+        // We need to handle leap year birthdays here. If the date was in a leap
+        // year, and the day is greater than the leap day, offset by -1 after
+        // the leap day. Other days don't need to be changed.
+        let day_of_year = if time::util::is_leap_year(year) && day_of_year > 60 {
+            day_of_year - 1
+        } else {
+            day_of_year
+        };
+
+        Date::from_ordinal_date(year + age, day_of_year)
+            .tap_err(|err| tracing::error!("could not calculate: {err}"))
+            .ok()
     }
 
     /// Attempt to get a field from known subfile types.

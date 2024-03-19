@@ -97,7 +97,7 @@ impl FromStr for SubfileType {
             "DL" => Ok(Self::DL),
             "EN" => Ok(Self::EN),
             "ID" => Ok(Self::ID),
-            s if s.starts_with("Z") => {
+            s if s.starts_with('Z') => {
                 let c = s.chars().nth(1).ok_or_else(|| UnknownSubfileType {
                     data: s.to_string(),
                 })?;
@@ -120,9 +120,7 @@ fn parse_header(input: &str) -> IResult<&str, (&str, Header)> {
 
     let (input, issuer_id) = context(
         "issuer identification number",
-        map_res(map_parser(take(6usize), digit1), |s| {
-            u32::from_str_radix(s, 10)
-        }),
+        map_res(map_parser(take(6usize), digit1), |s: &str| s.parse::<u32>()),
     )(input)?;
 
     let issuer = IssuerIdentification::try_from(issuer_id)
@@ -216,10 +214,10 @@ fn parse_subfile_designator<'a>(
     ))
 }
 
-fn parse_data_elements<'a>(
-    input: &'a str,
+fn parse_data_elements(
+    input: &str,
     subfile: SubfileDesignator,
-) -> IResult<&'a str, HashMap<&'a str, Option<&'a str>>> {
+) -> IResult<&str, HashMap<&str, Option<&str>>> {
     let (input, _offset) = take(subfile.offset as usize)(input)?;
 
     let max_length = std::cmp::min(subfile.length as usize, input.len());
@@ -258,10 +256,7 @@ fn parse_data_elements<'a>(
     Ok((input, elements))
 }
 
-fn parse_data_element<'a>(
-    input: &'a str,
-    subfile_type: SubfileType,
-) -> IResult<&'a str, DataElement<'a>> {
+fn parse_data_element(input: &str, subfile_type: SubfileType) -> IResult<&str, DataElement<'_>> {
     let prefix = match subfile_type {
         SubfileType::DL | SubfileType::EN | SubfileType::ID => "D".to_string(),
         SubfileType::JurisdictionSpecific(c) => format!("Z{c}"),
@@ -286,7 +281,7 @@ fn parse_data_element<'a>(
     Ok((input, DataElement { id, value }))
 }
 
-pub fn parse_barcode<'a>(input: &'a str) -> Result<Data<'a>, nom::Err<nom::error::Error<&'a str>>> {
+pub fn parse_barcode(input: &str) -> Result<Data<'_>, nom::Err<nom::error::Error<&str>>> {
     let (_trailing, (start, header)) = parse_header(input)?;
 
     let subfiles = header
@@ -306,15 +301,11 @@ pub fn parse_barcode<'a>(input: &'a str) -> Result<Data<'a>, nom::Err<nom::error
 }
 
 fn digit_0_to_99(input: &str) -> IResult<&str, u8> {
-    map_res(map_parser(take(2usize), digit1), |s| {
-        u8::from_str_radix(s, 10)
-    })(input)
+    map_res(map_parser(take(2usize), digit1), |s: &str| s.parse::<u8>())(input)
 }
 
 fn digit_4char(input: &str) -> IResult<&str, u32> {
-    map_res(map_parser(take(4usize), digit1), |s| {
-        u32::from_str_radix(s, 10)
-    })(input)
+    map_res(map_parser(take(4usize), digit1), |s: &str| s.parse::<u32>())(input)
 }
 
 #[cfg(test)]
