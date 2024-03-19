@@ -115,7 +115,7 @@ impl IssuerIdentification {
 pub struct DecodedData {
     pub issuer_id: u32,
     pub aamva_version: u8,
-    pub jurisdiction_version_number: Option<u8>,
+    pub jurisdiction_version: Option<u8>,
     #[serde(with = "ymd_format::option")]
     pub document_expiration_date: Option<Date>,
     pub name: Option<Name>,
@@ -146,7 +146,7 @@ impl From<Data<'_>> for DecodedData {
         Self {
             issuer_id: value.header.issuer_id,
             aamva_version: value.header.version_number,
-            jurisdiction_version_number: value.header.jurisdiction_version_number,
+            jurisdiction_version: value.header.jurisdiction_version_number,
             name: value.name(),
             document_expiration_date: value.document_expiration_date(),
             date_of_birth: value.date_of_birth(),
