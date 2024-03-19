@@ -1,12 +1,19 @@
+use std::ops::Not;
+
+use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 use tap::TapFallible;
-use time::macros::format_description;
+use time::{format_description::FormatItem, macros::format_description, Date};
 
 use crate::{Data, SubfileType};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+const DATE_FORMAT: &[FormatItem] = format_description!("[year]-[month]-[day]");
+time::serde::format_description!(ymd_format, Date, DATE_FORMAT);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum IssuerCountry {
+    #[default]
     UnitedStates,
     Canada,
     Mexico,
@@ -104,45 +111,173 @@ impl IssuerIdentification {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EyeColor {
+    Black,
+    Blue,
+    Brown,
+    Dichromatic,
+    Gray,
+    Green,
+    Hazel,
+    Maroon,
+    Pink,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Height {
+    Inches(u16),
+    Centimeters(u16),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecodedData {
+    pub issuer_id: u32,
+    pub aamva_version: u8,
+    pub jurisdiction_version_number: Option<u8>,
+    #[serde(with = "ymd_format::option")]
+    pub document_expiration_date: Option<Date>,
+    pub name: Option<Name>,
+    #[serde(with = "ymd_format::option")]
+    pub document_issue_date: Option<Date>,
+    #[serde(with = "ymd_format::option")]
+    pub date_of_birth: Option<Date>,
+    pub sex: Option<Sex>,
+    pub eye_color: Option<EyeColor>,
+    pub height: Option<Height>,
+    pub address: Option<Address>,
+    pub customer_id_number: Option<String>,
+    pub document_discriminator: Option<String>,
+    pub country: Option<IssuerCountry>,
+    pub hair_color: Option<HairColor>,
+    pub place_of_birth: Option<String>,
+    pub audit_information: Option<String>,
+    pub inventory_control_information: Option<String>,
+}
+
+impl From<Data<'_>> for DecodedData {
+    fn from(value: Data<'_>) -> Self {
+        Self {
+            issuer_id: value.header.issuer_id,
+            aamva_version: value.header.version_number,
+            jurisdiction_version_number: value.header.jurisdiction_version_number,
+            name: value.name(),
+            document_expiration_date: value.document_expiration_date(),
+            date_of_birth: value.date_of_birth(),
+            document_issue_date: value.document_issue_date(),
+            sex: value.sex(),
+            eye_color: value.eye_color(),
+            height: value.height(),
+            address: value.address(),
+            customer_id_number: value.customer_id_number(),
+            document_discriminator: value.document_discriminator(),
+            country: value.country(),
+            hair_color: value.hair_color(),
+            place_of_birth: value.place_of_birth(),
+            audit_information: value.audit_information(),
+            inventory_control_information: value.inventory_control_information(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Name {
+    pub family_name: String,
     pub first_name: String,
     pub middle_name: Option<String>,
-    pub last_name: String,
 
     pub prefix: Option<String>,
     pub suffix: Option<String>,
+
+    pub family_name_truncation: Option<Truncation>,
+    pub first_name_truncation: Option<Truncation>,
+    pub middle_name_truncation: Option<Truncation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Truncation {
+    Truncated,
+    NotTruncated,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Sex {
+    Male,
+    Female,
+    NotSpecified,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Address {
+    pub address_1: String,
+    pub address_2: Option<String>,
+    pub city: String,
+    pub jurisdiction_code: String,
+    pub postal_code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HairColor {
+    Bald,
+    Black,
+    Blond,
+    Brown,
+    Gray,
+    RedAuburn,
+    Sandy,
+    White,
+    Unknown,
+}
+
+fn filter_empty_str<S>(input: S) -> Option<S>
+where
+    S: AsRef<str>,
+{
+    input.as_ref().is_empty().not().then(|| input)
 }
 
 impl<'a> Data<'a> {
     pub fn name(&self) -> Option<Name> {
         match self.header.version_number {
-            0..=1 => {
-                if let Some(last_name) = self.get_field_owned("DAB") {
+            ..=1 => {
+                if let Some(family_name) = self.get_field_owned("DAB") {
                     let first_name = self.get_field_owned("DAC")?;
                     let middle_name = self.get_field_owned("DAD");
                     let suffix = self.get_field_owned("DAE");
                     let prefix = self.get_field_owned("DAF");
 
                     Some(Name {
+                        family_name,
                         first_name,
                         middle_name,
-                        last_name,
                         suffix,
                         prefix,
+                        family_name_truncation: None,
+                        first_name_truncation: None,
+                        middle_name_truncation: None,
                     })
                 } else {
                     let mut name = self.get_field("DAA")?.split(",");
-                    let last_name = name.next()?.to_string();
+                    let family_name = name.next()?.to_string();
                     let first_name = name.next()?.to_string();
                     let middle_name = name.next().map(str::to_string);
 
                     Some(Name {
+                        family_name: family_name.to_string(),
                         first_name,
                         middle_name,
-                        last_name: last_name.to_string(),
                         suffix: None,
                         prefix: None,
+                        family_name_truncation: None,
+                        first_name_truncation: None,
+                        middle_name_truncation: None,
                     })
                 }
             }
@@ -156,32 +291,190 @@ impl<'a> Data<'a> {
                 };
 
                 let first_name = parts.next()?.to_string();
-                let middle_name = parts.next().map(str::to_string);
+                let middle_name = filter_empty_str(parts.join(" "));
 
                 Some(Name {
+                    family_name: self.get_field_owned("DCS")?,
                     first_name,
                     middle_name,
-                    last_name: self.get_field_owned("DCS")?,
                     suffix: None,
                     prefix: None,
+                    family_name_truncation: None,
+                    first_name_truncation: None,
+                    middle_name_truncation: None,
                 })
             }
             4.. => Some(Name {
+                family_name: self.get_field_owned("DCS")?,
                 first_name: self.get_field_owned("DAC")?,
                 middle_name: self.get_field_owned("DAD"),
-                last_name: self.get_field_owned("DCS")?,
                 suffix: self.get_field_owned("DCU"),
                 prefix: None,
+                family_name_truncation: self.get_field("DDE").and_then(Self::parse_truncation),
+                first_name_truncation: self.get_field("DDF").and_then(Self::parse_truncation),
+                middle_name_truncation: self.get_field("DDG").and_then(Self::parse_truncation),
             }),
         }
     }
 
+    pub fn document_expiration_date(&self) -> Option<time::Date> {
+        self.date_field("DBA")
+    }
+
     pub fn date_of_birth(&self) -> Option<time::Date> {
+        self.date_field("DBB")
+    }
+
+    pub fn document_issue_date(&self) -> Option<time::Date> {
+        self.date_field("DBD")
+    }
+
+    pub fn sex(&self) -> Option<Sex> {
+        use Sex::*;
+
+        let sex = match self.get_field("DBC")?.to_ascii_uppercase().as_str() {
+            "1" | "M" => Male,
+            "2" | "F" => Female,
+            "9" | "X" => NotSpecified,
+            _ => return None,
+        };
+
+        Some(sex)
+    }
+
+    pub fn eye_color(&self) -> Option<EyeColor> {
+        use EyeColor::*;
+
+        let color = match self.get_field("DAY")?.to_ascii_uppercase().as_str() {
+            "BLK" => Black,
+            "BLU" => Blue,
+            "BRO" => Brown,
+            "DIC" => Dichromatic,
+            "GRN" => Green,
+            "GRY" => Gray,
+            "HAZ" => Hazel,
+            "MAR" => Maroon,
+            "PNK" => Pink,
+            "UNK" => Unknown,
+            _ => return None,
+        };
+
+        Some(color)
+    }
+
+    pub fn height(&self) -> Option<Height> {
+        let height = self.get_field("DAU")?.to_ascii_lowercase();
+
+        let parse_hyphenated_ftin = |feet: &str, inches: &str| {
+            let feet: u16 = feet.strip_suffix('\'').unwrap_or(feet).parse().ok()?;
+            let inches: u16 = inches.strip_suffix('"').unwrap_or(inches).parse().ok()?;
+            Some(Height::Inches(feet * 12 + inches))
+        };
+
+        if let Some(centimeters) = height.strip_suffix(" cm") {
+            let centimeters = centimeters[..3].parse().ok()?;
+            Some(Height::Centimeters(centimeters))
+        } else if let Some(inches) = height.strip_suffix(" in") {
+            let inches = inches[..3].parse().ok()?;
+            Some(Height::Inches(inches))
+        } else if height.len() == 3 {
+            let feet: u16 = height[..1].parse().ok()?;
+            let inches: u16 = height[1..=2].parse().ok()?;
+            Some(Height::Inches(feet * 12 + inches))
+        } else if let Some((feet, inches)) = height.split_once('-') {
+            parse_hyphenated_ftin(feet, inches)
+        } else if let Some(centimeters) = self.get_field("DAV") {
+            centimeters.parse().ok().map(Height::Centimeters)
+        } else if let Some(Some(height)) = self
+            .subfiles
+            .get(&SubfileType::JurisdictionSpecific('I'))
+            .and_then(|subfile| subfile.get("ZIJ"))
+        {
+            if let Some((feet, inches)) = height.split_once('-') {
+                parse_hyphenated_ftin(feet, inches)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn address(&self) -> Option<Address> {
+        Some(Address {
+            address_1: self.get_field_owned("DAG")?,
+            address_2: self.get_field_owned("DAH"),
+            city: self.get_field_owned("DAI")?,
+            jurisdiction_code: self.get_field_owned("DAJ")?,
+            postal_code: self.get_field_owned("DAK")?,
+        })
+    }
+
+    pub fn customer_id_number(&self) -> Option<String> {
+        self.get_field_owned("DAQ")
+    }
+
+    pub fn document_discriminator(&self) -> Option<String> {
+        self.get_field_owned("DCF")
+    }
+
+    pub fn country(&self) -> Option<IssuerCountry> {
+        let issuer = match self
+            .get_field("DCG")
+            .map(str::to_ascii_uppercase)
+            .as_deref()
+        {
+            Some("USA") => IssuerCountry::UnitedStates,
+            Some("CAN") => IssuerCountry::Canada,
+            Some("MEX") => IssuerCountry::Mexico,
+            Some(_) => return None,
+            _ => match self.height() {
+                Some(Height::Inches(_)) => IssuerCountry::UnitedStates,
+                Some(Height::Centimeters(_)) => IssuerCountry::Canada,
+                _ => return None,
+            },
+        };
+
+        Some(issuer)
+    }
+
+    pub fn hair_color(&self) -> Option<HairColor> {
+        use HairColor::*;
+
+        let color = match self.get_field("DAZ")?.to_ascii_uppercase().as_str() {
+            "BAL" => Bald,
+            "BLK" => Black,
+            "BLN" => Blond,
+            "BRO" => Brown,
+            "GRY" => Gray,
+            "RED" => RedAuburn,
+            "SDY" => Sandy,
+            "WHI" => White,
+            "UNK" => Unknown,
+            _ => return None,
+        };
+
+        Some(color)
+    }
+
+    pub fn place_of_birth(&self) -> Option<String> {
+        self.get_field_owned("DCI")
+    }
+
+    pub fn audit_information(&self) -> Option<String> {
+        self.get_field_owned("DCJ")
+    }
+
+    pub fn inventory_control_information(&self) -> Option<String> {
+        self.get_field_owned("DCK")
+    }
+
+    fn date_field(&self, name: &str) -> Option<time::Date> {
         let country = IssuerIdentification::try_from(self.header.issuer_id)
             .map(|issuer| issuer.country())
-            .unwrap_or(IssuerCountry::UnitedStates);
+            .unwrap_or_default();
 
-        let date_of_birth = self.get_field("DBB")?;
+        let date_of_birth = self.get_field(name)?;
 
         self.parse_date(date_of_birth, country)
     }
@@ -211,6 +504,15 @@ impl<'a> Data<'a> {
         .ok()
     }
 
+    fn parse_truncation(input: &str) -> Option<Truncation> {
+        match input {
+            "T" => Some(Truncation::Truncated),
+            "N" => Some(Truncation::NotTruncated),
+            "U" => Some(Truncation::Unknown),
+            _ => None,
+        }
+    }
+
     /// Attempt to get a field from known subfile types.
     fn get_field(&self, name: &str) -> Option<&'a str> {
         [SubfileType::DL, SubfileType::EN, SubfileType::ID]
@@ -218,7 +520,7 @@ impl<'a> Data<'a> {
             .find_map(|subfile_type| {
                 self.subfiles
                     .get(&subfile_type)
-                    .and_then(|subfile| subfile.get(name).cloned().flatten())
+                    .and_then(|subfile| subfile.get(name).cloned().flatten().map(str::trim))
             })
     }
 

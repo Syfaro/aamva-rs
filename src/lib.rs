@@ -12,6 +12,7 @@ use nom::{
 use serde::Serialize;
 use tap::TapFallible;
 
+pub use data::DecodedData;
 use data::IssuerIdentification;
 
 pub mod data;
