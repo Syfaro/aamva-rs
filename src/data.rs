@@ -631,17 +631,26 @@ impl<'a> Data<'a> {
         }
 
         let (year, day_of_year) = self.date_of_birth()?.to_ordinal_date();
+        let future_year = year + age;
 
-        // We need to handle leap year birthdays here. If the date was in a leap
-        // year, and the day is greater than the leap day, offset by -1 after
-        // the leap day. Other days don't need to be changed.
-        let day_of_year = if time::util::is_leap_year(year) && day_of_year > 60 {
-            day_of_year - 1
+        // We need to handle leap year birthdays here.
+        let day_of_year = if day_of_year > 60 {
+            let year_is_leap = time::util::is_leap_year(year);
+            let future_year_is_leap = time::util::is_leap_year(future_year);
+
+            match (year_is_leap, future_year_is_leap) {
+                // Both or neither years are leap years, numbers are the same.
+                (true, true) | (false, false) => day_of_year,
+                // Only current year is leap year, subtract one.
+                (true, false) => day_of_year - 1,
+                // Only future year is leap year, add one.
+                (false, true) => day_of_year + 1,
+            }
         } else {
             day_of_year
         };
 
-        Date::from_ordinal_date(year + age, day_of_year)
+        Date::from_ordinal_date(future_year, day_of_year)
             .tap_err(|err| tracing::error!("could not calculate: {err}"))
             .ok()
     }
