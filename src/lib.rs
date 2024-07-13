@@ -9,6 +9,8 @@ use nom::{
     multi::many0,
     IResult,
 };
+use once_cell::sync::Lazy;
+use regex_lite::Regex;
 use serde::Serialize;
 use tap::TapFallible;
 
@@ -164,6 +166,10 @@ fn parse_subfile_designator<'a>(
     issuer: Option<IssuerIdentification>,
     version: u8,
 ) -> IResult<&'a str, SubfileDesignator> {
+    static MATCHER: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(DL|ID)([\d\w]{3,8})(DL|ID|Z\w)([DZ][A-Z]{2})").expect("regex should compile")
+    });
+
     let (input, subfile_type) = context(
         "subfile type",
         map_res(take(2usize), |s: &str| s.parse::<SubfileType>()),
@@ -171,9 +177,8 @@ fn parse_subfile_designator<'a>(
 
     let guess_offset = || {
         let mut offset = 0;
-        let matcher = regex_lite::Regex::new(r"(DL|ID)([\d\w]{3,8})(DL|ID|Z\w)([DZ][A-Z]{2})")
-            .expect("regex should compile");
-        if let Some(m) = matcher.find(start) {
+
+        if let Some(m) = MATCHER.find(start) {
             offset = m.end() as u32 - 5;
         }
         tracing::warn!(
