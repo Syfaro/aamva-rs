@@ -1,15 +1,12 @@
 use std::ops::Not;
 
 use itertools::Itertools;
+use jiff::civil::Date;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
-use tap::TapFallible;
-use time::{format_description::FormatItem, macros::format_description, Date};
+use tap::TapOptional;
 
 use crate::{Data, SubfileType};
-
-const YMD_FORMAT: &[FormatItem] = format_description!("[year]-[month]-[day]");
-time::serde::format_description!(ymd_format, Date, YMD_FORMAT);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum IssuerCountry {
@@ -116,12 +113,9 @@ pub struct DecodedData {
     pub issuer_id: u32,
     pub aamva_version: u8,
     pub jurisdiction_version: Option<u8>,
-    #[serde(with = "ymd_format::option")]
     pub document_expiration_date: Option<Date>,
     pub name: Option<Name>,
-    #[serde(with = "ymd_format::option")]
     pub document_issue_date: Option<Date>,
-    #[serde(with = "ymd_format::option")]
     pub date_of_birth: Option<Date>,
     pub sex: Option<Sex>,
     pub eye_color: Option<EyeColor>,
@@ -136,8 +130,8 @@ pub struct DecodedData {
     pub inventory_control_information: Option<String>,
     pub weight: Option<Weight>,
     pub race: Option<Race>,
-    #[serde(with = "ymd_format::option")]
     pub card_revision_date: Option<Date>,
+    #[serde(skip_serializing_if = "UnderAgeUntil::is_empty")]
     pub under_age_until: UnderAgeUntil,
 }
 
@@ -271,12 +265,17 @@ pub enum Race {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnderAgeUntil {
-    #[serde(with = "ymd_format::option")]
     pub under_18_until: Option<Date>,
-    #[serde(with = "ymd_format::option")]
     pub under_19_until: Option<Date>,
-    #[serde(with = "ymd_format::option")]
     pub under_21_until: Option<Date>,
+}
+
+impl UnderAgeUntil {
+    fn is_empty(&self) -> bool {
+        self.under_18_until.is_none()
+            && self.under_19_until.is_none()
+            && self.under_21_until.is_none()
+    }
 }
 
 fn filter_empty_str<S>(input: S) -> Option<S>
@@ -575,9 +574,9 @@ impl<'a> Data<'a> {
 
     pub fn under_age_until(&self) -> UnderAgeUntil {
         UnderAgeUntil {
-            under_18_until: self.under_n_until("DDH", 18),
-            under_19_until: self.under_n_until("DDH", 19),
-            under_21_until: self.under_n_until("DDH", 21),
+            under_18_until: self.date_field("DDH"),
+            under_19_until: self.date_field("DDI"),
+            under_21_until: self.date_field("DDJ"),
         }
     }
 
@@ -598,21 +597,31 @@ impl<'a> Data<'a> {
             return None;
         }
 
-        let input = &input[..8];
+        let parse_mdy = |input: &str| -> Option<Date> {
+            let month = input[..2].parse().ok()?;
+            let day = input[2..4].parse().ok()?;
+            let year = input[4..].parse().ok()?;
 
-        const MDY: &[FormatItem<'_>] = format_description!("[month][day][year]");
-        const YMD: &[FormatItem<'_>] = format_description!("[year][month][day]");
+            jiff::civil::Date::new(year, month, day).ok()
+        };
+
+        let parse_ymd = |input: &str| -> Option<Date> {
+            let year = input[..4].parse().ok()?;
+            let month = input[4..6].parse().ok()?;
+            let day = input[6..].parse().ok()?;
+
+            jiff::civil::Date::new(year, month, day).ok()
+        };
 
         if country == IssuerCountry::UnitedStates && self.header.version_number != 1 {
-            match Date::parse(input, &MDY) {
-                Err(_err) => Date::parse(input, &YMD),
+            match parse_mdy(input) {
+                None => parse_ymd(input),
                 date => date,
             }
         } else {
-            Date::parse(input, &YMD)
+            parse_ymd(input)
         }
-        .tap_err(|err| tracing::warn!("could not parse date {input} ({country:?}): {err}"))
-        .ok()
+        .tap_none(|| tracing::warn!("could not parse date {input} ({country:?})"))
     }
 
     fn parse_truncation(input: &str) -> Option<Truncation> {
@@ -622,37 +631,6 @@ impl<'a> Data<'a> {
             "U" => Some(Truncation::Unknown),
             _ => None,
         }
-    }
-
-    #[tracing::instrument(skip(self))]
-    fn under_n_until(&self, name: &str, age: i32) -> Option<Date> {
-        if let Some(date) = self.date_field(name) {
-            return Some(date);
-        }
-
-        let (year, day_of_year) = self.date_of_birth()?.to_ordinal_date();
-        let future_year = year + age;
-
-        // We need to handle leap year birthdays here.
-        let day_of_year = if day_of_year > 60 {
-            let year_is_leap = time::util::is_leap_year(year);
-            let future_year_is_leap = time::util::is_leap_year(future_year);
-
-            match (year_is_leap, future_year_is_leap) {
-                // Both or neither years are leap years, numbers are the same.
-                (true, true) | (false, false) => day_of_year,
-                // Only current year is leap year, subtract one.
-                (true, false) => day_of_year - 1,
-                // Only future year is leap year, add one.
-                (false, true) => day_of_year + 1,
-            }
-        } else {
-            day_of_year
-        };
-
-        Date::from_ordinal_date(future_year, day_of_year)
-            .tap_err(|err| tracing::error!("could not calculate: {err}"))
-            .ok()
     }
 
     /// Attempt to get a field from known subfile types.
