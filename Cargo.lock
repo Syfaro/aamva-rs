@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aamva"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "itertools",
  "jiff",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "aamva-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aamva",
  "serde-wasm-bindgen",
