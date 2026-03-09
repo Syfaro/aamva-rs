@@ -1,12 +1,21 @@
 [workspace]
 members = [".", "bindings/aamva-web"]
 
+[workspace.metadata.release]
+sign-tag = true
+shared-version = true
+tag-name = "v{{version}}"
+
 [package]
 name = "aamva"
 version = "0.1.0"
 edition = "2024"
 authors = ["Syfaro <syfaro@huefox.com>"]
 license = "MIT"
+publish = false
+
+[package.metadata.release]
+shared-version = true
 
 [features]
 web = ["tsify", "wasm-bindgen"]

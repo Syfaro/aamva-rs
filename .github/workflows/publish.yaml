@@ -1,0 +1,42 @@
+name: Build and Publish Package
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          registry-url: 'https://registry.npmjs.org'
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Write release version
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build web package
+        run: wasm-pack build bindings/aamva-web --release --scope syfaro
+
+      - name: Pack web package
+        run: wasm-pack pack bindings/aamva-web
+
+      - name: Publish web package
+        run: npm publish bindings/aamva-web/pkg/syfaro-aamva-web-${VERSION}.tgz --access=public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
