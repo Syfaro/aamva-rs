@@ -116,9 +116,12 @@ pub struct DecodedData {
     pub issuer_id: u32,
     pub aamva_version: u8,
     pub jurisdiction_version: Option<u8>,
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub document_expiration_date: Option<Date>,
     pub name: Option<Name>,
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub document_issue_date: Option<Date>,
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub date_of_birth: Option<Date>,
     pub sex: Option<Sex>,
     pub eye_color: Option<EyeColor>,
@@ -133,6 +136,7 @@ pub struct DecodedData {
     pub inventory_control_information: Option<String>,
     pub weight: Option<Weight>,
     pub race: Option<Race>,
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub card_revision_date: Option<Date>,
     #[serde(skip_serializing_if = "UnderAgeUntil::is_empty")]
     pub under_age_until: UnderAgeUntil,
@@ -278,8 +282,11 @@ pub enum Race {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub struct UnderAgeUntil {
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub under_18_until: Option<Date>,
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub under_19_until: Option<Date>,
+    #[cfg_attr(feature = "web", tsify(type = "string | undefined"))]
     pub under_21_until: Option<Date>,
 }
 

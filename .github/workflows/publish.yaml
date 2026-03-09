@@ -38,5 +38,3 @@ jobs:
 
       - name: Publish web package
         run: npm publish bindings/aamva-web/pkg/syfaro-aamva-web-${VERSION}.tgz --access=public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}

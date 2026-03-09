@@ -103,7 +103,9 @@
   </section>
 
   <script type="module">
-    import init, { parse_barcode, decode_barcode } from "../pkg/aamva_js.js";
+    import init, { parseBarcode, decodeBarcode } from "../pkg/aamva_web.js";
+
+    await init();
 
     const manualEntry = document.getElementById("manual-entry");
     const decodedDataContainer = document.getElementById("decoded-data-container");
@@ -118,122 +120,121 @@
 
     const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
 
-    init().then(() => {
-      function decodeData(data) {
-        let barcodeData;
+    function decodeData(data) {
+      let barcodeData;
 
-        try {
-          const decodeStart = performance.now();
-          barcodeData = parse_barcode(data);
-          const decodeDuration = performance.now() - decodeStart;
-          dataDecodingTime.textContent = `${numberFormatter.format(decodeDuration)} ms`;
-        } catch (err) {
-          alert(`Could not decode barcode: ${err}`);
-          console.error(err);
+      try {
+        const decodeStart = performance.now();
+        barcodeData = parseBarcode(data);
+        const decodeDuration = performance.now() - decodeStart;
+        dataDecodingTime.textContent = `${numberFormatter.format(decodeDuration)} ms`;
+      } catch (err) {
+        alert(`Could not decode barcode: ${err}`);
+        console.error(err);
+        return;
+      }
+
+      const parsedData = decodeBarcode(data);
+
+      decodedDataContainer.classList.remove("is-hidden");
+
+      parsedDataResult.value = JSON.stringify(barcodeData, (_, value) =>
+        value instanceof Map || value instanceof Set ? Array.from(value).reduce((obj, [key, value]) => {
+          obj[key] = value;
+          return obj;
+        }, {}) : value, 2);
+      parsedDataResult.style.height = `${parsedDataResult.scrollHeight}px`;
+
+      decodedDataResult.value = JSON.stringify(parsedData, null, 2);
+      decodedDataResult.style.height = `${decodedDataResult.scrollHeight}px`;
+    }
+
+
+    document.getElementById("decode-button").addEventListener("click", (ev) => {
+      barcodeDetectionTime.textContent = 'N/A';
+      const data = manualEntry.value;
+      decodeData(data);
+    });
+
+    if ("BarcodeDetector" in globalThis) {
+      const barcodeDetector = new BarcodeDetector({
+        formats: ["pdf417"],
+      });
+
+      document.getElementById("photo-upload").addEventListener("change", (ev) => {
+        const files = ev.target.files;
+
+        if (!files || files.length > 1) {
+          alert("Please select exactly one file.");
           return;
         }
 
-        const parsedData = decode_barcode(data);
+        const file = files[0];
 
-        decodedDataContainer.classList.remove("is-hidden");
+        const barcodeStart = performance.now();
+        barcodeDetector.detect(file).then((barcodes) => {
+          const barcodeDuration = performance.now() - barcodeStart;
+          barcodeDetectionTime.textContent = `${numberFormatter.format(barcodeDuration)} ms`;
 
-        parsedDataResult.value = JSON.stringify(barcodeData, (_, value) =>
-          value instanceof Map || value instanceof Set ? Array.from(value).reduce((obj, [key, value]) => {
-            obj[key] = value;
-            return obj;
-          }, {}) : value, 2);
-        parsedDataResult.style.height = `${parsedDataResult.scrollHeight}px`;
-
-        decodedDataResult.value = JSON.stringify(parsedData, null, 2);
-        decodedDataResult.style.height = `${decodedDataResult.scrollHeight}px`;
-      }
-
-      document.getElementById("decode-button").addEventListener("click", (ev) => {
-        barcodeDetectionTime.textContent = 'N/A';
-        const data = manualEntry.value;
-        decodeData(data);
-      });
-
-      if (!("BarcodeDetector" in globalThis)) {
-        document.getElementById("shape-detection-warning").classList.remove("is-hidden");
-      } else {
-        const barcodeDetector = new BarcodeDetector({
-          formats: ["pdf417"],
-        });
-
-        document.getElementById("photo-upload").addEventListener("change", (ev) => {
-          const files = ev.target.files;
-
-          if (!files || files.length > 1) {
-            alert("Please select exactly one file.");
+          if (barcodes.length === 0 || barcodes.length > 1) {
+            alert("Ensure image contains exactly one barcode.");
             return;
           }
 
-          const file = files[0];
+          const data = barcodes[0].rawValue;
+          manualEntry.value = data;
 
-          const barcodeStart = performance.now();
-          barcodeDetector.detect(file).then((barcodes) => {
-            const barcodeDuration = performance.now() - barcodeStart;
-            barcodeDetectionTime.textContent = `${numberFormatter.format(barcodeDuration)} ms`;
+          decodeData(data);
+        });
+      });
 
-            if (barcodes.length === 0 || barcodes.length > 1) {
-              alert("Ensure image contains exactly one barcode.");
-              return;
+      startWebcam.addEventListener("click", (ev) => {
+        navigator.mediaDevices
+          .getUserMedia({ video: { facingMode: "environment" }, audio: false })
+          .then((stream) => {
+            let timeout;
+
+            webcamPreview.classList.remove("is-hidden");
+            startWebcam.classList.add("is-hidden");
+
+            webcamPreview.srcObject = stream;
+            webcamPreview.play();
+
+            function searchBarcodes() {
+              const barcodeStart = performance.now();
+
+              barcodeDetector.detect(webcamPreview).then((barcodes) => {
+                if (barcodes.length > 0) {
+                  const barcodeDuration = performance.now() - barcodeStart;
+                  barcodeDetectionTime.textContent = `${numberFormatter.format(barcodeDuration)} ms`;
+
+                  clearTimeout(timeout);
+
+                  webcamPreview.srcObject = null;
+
+                  webcamPreview.classList.add("is-hidden");
+                  startWebcam.classList.remove("is-hidden");
+
+                  stream.getTracks().forEach((track) => {
+                    track.stop();
+                  });
+
+                  const data = barcodes[0].rawValue;
+                  manualEntry.value = data;
+
+                  decodeData(data);
+                }
+
+                timeout = setTimeout(searchBarcodes, 100);
+              });
             }
 
-            const data = barcodes[0].rawValue;
-            manualEntry.value = data;
-
-            decodeData(data);
+            timeout = setTimeout(searchBarcodes, 100);
           });
-        });
-
-        startWebcam.addEventListener("click", (ev) => {
-          navigator.mediaDevices
-            .getUserMedia({ video: { facingMode: "environment" }, audio: false })
-            .then((stream) => {
-              let timeout;
-
-              webcamPreview.classList.remove("is-hidden");
-              startWebcam.classList.add("is-hidden");
-
-              webcamPreview.srcObject = stream;
-              webcamPreview.play();
-
-              function searchBarcodes() {
-                const barcodeStart = performance.now();
-
-                barcodeDetector.detect(webcamPreview).then((barcodes) => {
-                  if (barcodes.length > 0) {
-                    const barcodeDuration = performance.now() - barcodeStart;
-                    barcodeDetectionTime.textContent = `${numberFormatter.format(barcodeDuration)} ms`;
-
-                    clearTimeout(timeout);
-
-                    webcamPreview.srcObject = null;
-
-                    webcamPreview.classList.add("is-hidden");
-                    startWebcam.classList.remove("is-hidden");
-
-                    stream.getTracks().forEach(function (track) {
-                      track.stop();
-                    });
-
-                    const data = barcodes[0].rawValue;
-                    manualEntry.value = data;
-
-                    decodeData(data);
-                  }
-
-                  timeout = setTimeout(searchBarcodes, 100);
-                });
-              }
-
-              timeout = setTimeout(searchBarcodes, 100);
-            });
-        });
-      }
-    });
+      });
+    } else {
+      document.getElementById("shape-detection-warning").classList.remove("is-hidden");
+    }
   </script>
 </body>
 
