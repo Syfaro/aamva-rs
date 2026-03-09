@@ -9,6 +9,7 @@ use tap::TapOptional;
 use crate::{Data, SubfileType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub enum IssuerCountry {
     #[default]
     UnitedStates,
@@ -109,6 +110,8 @@ impl IssuerIdentification {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
+#[cfg_attr(feature = "web", tsify(into_wasm_abi))]
 pub struct DecodedData {
     pub issuer_id: u32,
     pub aamva_version: u8,
@@ -165,6 +168,7 @@ impl From<Data<'_>> for DecodedData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub struct Name {
     pub family: String,
     pub first: String,
@@ -183,6 +187,7 @@ pub struct Name {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum Truncation {
     Truncated,
@@ -191,6 +196,7 @@ pub enum Truncation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum Sex {
     Male,
@@ -199,6 +205,7 @@ pub enum Sex {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub struct Address {
     pub address_1: String,
     pub address_2: Option<String>,
@@ -208,6 +215,7 @@ pub struct Address {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum EyeColor {
     Black,
@@ -223,6 +231,7 @@ pub enum EyeColor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum HairColor {
     Bald,
@@ -237,6 +246,7 @@ pub enum HairColor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum Height {
     Inches(u16),
@@ -244,6 +254,7 @@ pub enum Height {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum Weight {
     Pounds(u16),
@@ -252,6 +263,7 @@ pub enum Weight {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 #[serde(rename_all = "snake_case")]
 pub enum Race {
     AlaskanAmericanIndian,
@@ -264,6 +276,7 @@ pub enum Race {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub struct UnderAgeUntil {
     pub under_18_until: Option<Date>,
     pub under_19_until: Option<Date>,

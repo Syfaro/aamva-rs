@@ -1,13 +1,13 @@
 use std::{collections::HashMap, str::FromStr};
 
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::{tag, take, take_till, take_until},
     character::complete::{alpha1, digit1, multispace0},
     combinator::{eof, map_parser, map_res, opt},
     error::context,
     multi::many0,
-    IResult,
 };
 use once_cell::sync::Lazy;
 use regex_lite::Regex;
@@ -20,12 +20,15 @@ use data::IssuerIdentification;
 pub mod data;
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
+#[cfg_attr(feature = "web", tsify(into_wasm_abi))]
 pub struct Data<'a> {
     pub header: Header,
     pub subfiles: HashMap<SubfileType, HashMap<&'a str, Option<&'a str>>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub struct Header {
     pub issuer_id: u32,
     pub version_number: u8,
@@ -35,6 +38,7 @@ pub struct Header {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub struct SubfileDesignator {
     pub subfile_type: SubfileType,
     pub offset: u32,
@@ -48,6 +52,7 @@ struct DataElement<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "web", derive(tsify::Tsify))]
 pub enum SubfileType {
     DL,
     EN,
@@ -114,36 +119,38 @@ impl FromStr for SubfileType {
 
 fn parse_header(input: &str) -> IResult<&str, (&str, Header)> {
     let (start, _) = take_until("@")(input)?;
-    let (input, _) = context("compliance indicator", tag("@"))(start)?;
+    let (input, _) = context("compliance indicator", tag("@")).parse(start)?;
 
     let (input, _) = multispace0(input)?;
-    let (input, _) = context("record separator", take_until("A"))(input)?;
-    let (input, _) = context("file type", alt((tag("ANSI "), tag("AAMVA"))))(input)?;
+    let (input, _) = context("record separator", take_until("A")).parse(input)?;
+    let (input, _) = context("file type", alt((tag("ANSI "), tag("AAMVA")))).parse(input)?;
 
     let (input, issuer_id) = context(
         "issuer identification number",
         map_res(map_parser(take(6usize), digit1), |s: &str| s.parse::<u32>()),
-    )(input)?;
+    )
+    .parse(input)?;
 
     let issuer = IssuerIdentification::try_from(issuer_id)
         .tap_err(|err| tracing::warn!("could not decode issuer identification number: {err}"))
         .ok();
 
-    let (input, version_number) = context("aamva version number", digit_0_to_99)(input)?;
+    let (input, version_number) = context("aamva version number", digit_0_to_99).parse(input)?;
 
     let (input, jurisdiction_version_number) = if version_number > 2 {
         let (input, jurisdiction_version_number) =
-            context("jurisdiction version number", digit_0_to_99)(input)?;
+            context("jurisdiction version number", digit_0_to_99).parse(input)?;
         (input, Some(jurisdiction_version_number))
     } else {
         (input, None)
     };
 
-    let (input, number_of_entries) = context("number of entries", digit_0_to_99)(input)?;
+    let (input, number_of_entries) = context("number of entries", digit_0_to_99).parse(input)?;
     let (input, subfile_designators) = context(
         "subfile designators",
         many0(|s| parse_subfile_designator(s, start, issuer, version_number)),
-    )(input)?;
+    )
+    .parse(input)?;
 
     Ok((
         input,
@@ -173,7 +180,8 @@ fn parse_subfile_designator<'a>(
     let (input, subfile_type) = context(
         "subfile type",
         map_res(take(2usize), |s: &str| s.parse::<SubfileType>()),
-    )(input)?;
+    )
+    .parse(input)?;
 
     let guess_offset = || {
         let mut offset = 0;
@@ -193,7 +201,7 @@ fn parse_subfile_designator<'a>(
             let offset = guess_offset();
             (input, offset, start.len() as u32)
         } else {
-            let (input, mut offset) = context("subfile offset", digit_4char)(input)?;
+            let (input, mut offset) = context("subfile offset", digit_4char).parse(input)?;
 
             if version == 1 && issuer == Some(IssuerIdentification::SouthCarolina) && offset == 30 {
                 tracing::debug!("applying fix for south carolina offset");
@@ -204,7 +212,7 @@ fn parse_subfile_designator<'a>(
                 offset = guess_offset();
             }
 
-            let (input, length) = context("subfile length", digit_4char)(input)?;
+            let (input, length) = context("subfile length", digit_4char).parse(input)?;
 
             (input, offset, length)
         };
@@ -244,14 +252,14 @@ fn parse_data_elements(
         SubfileType::DL | SubfileType::EN | SubfileType::ID
     ) {
         let (element_data, _) =
-            opt(tag(subfile.subfile_type.to_string().as_bytes()))(element_data)?;
+            opt(tag(subfile.subfile_type.to_string().as_bytes())).parse(element_data)?;
         element_data
     } else {
         element_data
     };
 
     let (input, elements) =
-        many0(|input| parse_data_element(input, subfile.subfile_type))(element_data)?;
+        many0(|input| parse_data_element(input, subfile.subfile_type)).parse(element_data)?;
 
     let elements = elements
         .into_iter()
@@ -268,7 +276,7 @@ fn parse_data_element(input: &str, subfile_type: SubfileType) -> IResult<&str, D
     };
 
     // Get the 3-letter ID for this element.
-    let (input, id) = map_parser(take(3usize), alpha1)(input)?;
+    let (input, id) = map_parser(take(3usize), alpha1).parse(input)?;
 
     if !id.starts_with(&prefix) {
         tracing::warn!("element in subfile {subfile_type} had wrong ID prefix: {id}");
@@ -276,7 +284,7 @@ fn parse_data_element(input: &str, subfile_type: SubfileType) -> IResult<&str, D
 
     // Take values until we reach a terminator, then take the terminator.
     let (input, value) = take_till(|s| matches!(s, '\r' | '\n'))(input)?;
-    let (input, _) = alt((take(1usize), eof))(input)?;
+    let (input, _) = alt((take(1usize), eof)).parse(input)?;
 
     let value = match value.trim() {
         "NONE" | "unavl" | "" => None,
@@ -306,11 +314,11 @@ pub fn parse_barcode(input: &str) -> Result<Data<'_>, nom::Err<nom::error::Error
 }
 
 fn digit_0_to_99(input: &str) -> IResult<&str, u8> {
-    map_res(map_parser(take(2usize), digit1), |s: &str| s.parse::<u8>())(input)
+    map_res(map_parser(take(2usize), digit1), |s: &str| s.parse::<u8>()).parse(input)
 }
 
 fn digit_4char(input: &str) -> IResult<&str, u32> {
-    map_res(map_parser(take(4usize), digit1), |s: &str| s.parse::<u32>())(input)
+    map_res(map_parser(take(4usize), digit1), |s: &str| s.parse::<u32>()).parse(input)
 }
 
 #[cfg(test)]
